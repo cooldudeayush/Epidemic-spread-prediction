@@ -107,15 +107,15 @@ def attach_risk_context(
         "people_fully_vaccinated_per_hundred",
         pd.Series(0, index=enriched.index, dtype=float),
     ).fillna(0)
-    vaccination_protection = _piecewise_score(fully_vaccinated, [0, 20, 40, 60, 80], [0, 3, 6, 10, 14])
+    vaccination_protection = _piecewise_score(fully_vaccinated, [0, 20, 40, 60, 80], [0, 0.05, 0.10, 0.18, 0.28])
 
-    severity = (
+    base_severity = (
         0.30 * future_scale
         + 0.40 * recent_scale
         + 0.20 * growth_scale
         + 0.10 * positive_scale
-        - vaccination_protection
-    ).clip(lower=0, upper=100)
+    )
+    severity = (base_severity * (1 - vaccination_protection)).clip(lower=0, upper=100)
 
     labels = pd.cut(
         severity,

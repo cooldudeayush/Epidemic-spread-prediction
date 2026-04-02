@@ -43,10 +43,12 @@ col3.metric("Latest Prediction Date", str(predictions["date"].max().date()))
 map_fig = px.choropleth(
     predictions.dropna(subset=["iso_code"]),
     locations="iso_code",
+    locationmode="ISO-3",
     color="risk_label",
     hover_name="country",
     hover_data={
         "predicted_cases_7d": ":.0f",
+        "predicted_cases_per_100k_7d": ":.2f",
         "predicted_growth_rate": ":.2f",
         "risk_score": ":.2f",
     },
@@ -62,7 +64,7 @@ if selected_country != "All":
 
 st.subheader("Predicted Country Risk Table")
 st.dataframe(
-    table_view.sort_values(["risk_label", "predicted_cases_7d"], ascending=[True, False]),
+    table_view.sort_values(["risk_score", "predicted_cases_7d"], ascending=[False, False]),
     use_container_width=True,
 )
 

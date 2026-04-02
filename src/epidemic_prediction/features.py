@@ -5,6 +5,7 @@ import pandas as pd
 
 from .config import ProjectConfig
 from .data import DatasetBundle, build_iso_lookup
+from .risk import attach_risk_context
 
 
 def _add_case_features(frame: pd.DataFrame) -> pd.DataFrame:
@@ -48,27 +49,6 @@ def _add_targets(frame: pd.DataFrame, horizon: int) -> pd.DataFrame:
     frame["target_growth_rate"] = frame["target_cases_7d"] / (
         frame["rolling_cases_mean_7"].replace(0, np.nan) * horizon
     )
-    return frame
-
-
-def _add_risk_labels(frame: pd.DataFrame) -> pd.DataFrame:
-    cases_per_million = np.where(
-        frame["population"].fillna(0) > 0,
-        frame["target_cases_7d"] / frame["population"] * 1_000_000,
-        np.nan,
-    )
-    frame["target_cases_per_million_7d"] = cases_per_million
-    risk_score = (
-        np.log1p(frame["target_cases_7d"].clip(lower=0))
-        + np.log1p(np.nan_to_num(cases_per_million, nan=0.0).clip(min=0))
-    )
-    frame["risk_score_future"] = risk_score
-    risk_band = pd.cut(
-        risk_score,
-        bins=[-np.inf, 3.5, 6.0, np.inf],
-        labels=["low", "medium", "high"],
-    )
-    frame["risk_label"] = risk_band.astype("object")
     return frame
 
 
@@ -126,15 +106,23 @@ def build_modeling_table(bundle: DatasetBundle, config: ProjectConfig) -> pd.Dat
             table = table.drop(columns=["iso_code_owid"])
 
     table["population"] = table.get("population", pd.Series(index=table.index, dtype=float))
-    if table["population"].isna().all():
-        # Without OWID we can still train, but per-capita metrics fall back to raw counts.
-        table["population"] = np.nan
+    table["population"] = table.groupby("country")["population"].transform(lambda s: s.ffill().bfill())
+    if "people_fully_vaccinated_per_hundred" in table.columns:
+        table["people_fully_vaccinated_per_hundred"] = (
+            table.groupby("country")["people_fully_vaccinated_per_hundred"].transform(lambda s: s.ffill().fillna(0))
+        )
+    if "positive_rate" in table.columns:
+        table["positive_rate"] = table.groupby("country")["positive_rate"].transform(lambda s: s.ffill().fillna(0))
 
     table = table.sort_values(["country", "date"]).reset_index(drop=True)
     table = _add_case_features(table)
     table = _add_mobility_features(table)
     table = _add_targets(table, config.forecast_horizon_days)
-    table = _add_risk_labels(table)
+    table = attach_risk_context(table, cases_col="target_cases_7d", growth_col="target_growth_rate", prefix="target_")
+    table["risk_score"] = table["target_risk_score"]
+    table["risk_label"] = table["target_risk_label"]
+    table["target_cases_per_million_7d"] = table["target_cases_per_100k_7d"] * 10
+    table["risk_score_future"] = table["target_risk_score"]
 
     feature_fill_zero = [
         "excess_deaths_per_100k",

@@ -6,6 +6,7 @@ from pathlib import Path
 import pandas as pd
 
 from .config import ProjectConfig
+from .risk import standardize_iso3
 
 
 JHU_RENAMES = {
@@ -116,6 +117,7 @@ def load_mobility(path: Path) -> pd.DataFrame:
         .sort_values(["country", "date"])
     )
     grouped = grouped.rename(columns={"country_region_code": "iso_code"})
+    grouped["iso_code"] = grouped.apply(lambda row: standardize_iso3(row["iso_code"], row["country"]), axis=1)
     return grouped
 
 
@@ -137,6 +139,7 @@ def load_excess_deaths(path: Path) -> pd.DataFrame:
             "Confirmed COVID-19 deaths (per 100,000)": "confirmed_deaths_per_100k",
         }
     )
+    excess["iso_code"] = excess.apply(lambda row: standardize_iso3(row["iso_code"], row["country"]), axis=1)
     return excess[["country", "iso_code", "date", "excess_deaths_per_100k", "confirmed_deaths_per_100k"]]
 
 
@@ -164,22 +167,28 @@ def load_owid(path: Path) -> pd.DataFrame:
     owid = pd.read_csv(path, usecols=lambda c: c in candidate_columns)
     owid["date"] = pd.to_datetime(owid["date"])
     owid["country"] = owid["location"].map(_normalize_country_name)
+    owid["iso_code"] = owid.apply(lambda row: standardize_iso3(row["iso_code"], row["country"]), axis=1)
+    owid = owid[owid["iso_code"].notna()].copy()
     return owid
 
 
 def build_iso_lookup(cases: pd.DataFrame, mobility: pd.DataFrame, excess: pd.DataFrame, owid: pd.DataFrame) -> pd.DataFrame:
-    mobility_lookup = mobility[["country", "iso_code"]].dropna().drop_duplicates()
-    excess_lookup = excess[["country", "iso_code"]].dropna().drop_duplicates()
+    countries = cases[["country"]].drop_duplicates().copy()
+    countries["iso_code"] = None
 
-    lookups = [mobility_lookup, excess_lookup]
+    prioritized_lookups: list[pd.DataFrame] = []
     if not owid.empty and "iso_code" in owid.columns:
-        owid_lookup = owid[["country", "iso_code"]].dropna().drop_duplicates()
-        lookups.append(owid_lookup)
+        prioritized_lookups.append(owid[["country", "iso_code"]].dropna().drop_duplicates())
+    prioritized_lookups.append(excess[["country", "iso_code"]].dropna().drop_duplicates())
+    prioritized_lookups.append(mobility[["country", "iso_code"]].dropna().drop_duplicates())
 
-    combined = pd.concat(lookups, ignore_index=True).drop_duplicates()
-    combined = combined.sort_values(["country", "iso_code"]).drop_duplicates("country", keep="first")
-    countries = cases[["country"]].drop_duplicates()
-    return countries.merge(combined, on="country", how="left")
+    for lookup in prioritized_lookups:
+        countries = countries.merge(lookup, on="country", how="left", suffixes=("", "_candidate"))
+        countries["iso_code"] = countries["iso_code"].fillna(countries["iso_code_candidate"])
+        countries = countries.drop(columns=["iso_code_candidate"])
+
+    countries["iso_code"] = countries.apply(lambda row: standardize_iso3(row["iso_code"], row["country"]), axis=1)
+    return countries
 
 
 def load_all_datasets(config: ProjectConfig) -> DatasetBundle:

@@ -6,17 +6,17 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import LogisticRegression, Ridge
+from sklearn.linear_model import Ridge
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import accuracy_score, f1_score, mean_absolute_error, mean_squared_error, precision_score, recall_score
 
 from .config import ProjectConfig
+from .risk import attach_risk_context
 
 
 @dataclass
 class ModelingArtifacts:
     forecast_model: Ridge
-    risk_model: LogisticRegression
     imputer: SimpleImputer
     feature_columns: list[str]
     forecast_metrics: dict[str, float]
@@ -33,6 +33,10 @@ def _feature_columns(table: pd.DataFrame) -> list[str]:
         "target_cases_7d",
         "target_growth_rate",
         "target_cases_per_million_7d",
+        "target_cases_per_100k_7d",
+        "target_recent_cases_per_100k_7d",
+        "target_risk_score",
+        "target_risk_label",
     }
     numeric_cols = [col for col in table.columns if col not in blocked and pd.api.types.is_numeric_dtype(table[col])]
     cols = [col for col in numeric_cols if col != "confirmed_cumulative"]
@@ -62,14 +66,6 @@ def _prepare_xy(
     return x, y, imputer
 
 
-def _encode_risk(series: pd.Series) -> tuple[np.ndarray, dict[int, str], dict[str, int]]:
-    labels = ["low", "medium", "high"]
-    forward = {label: idx for idx, label in enumerate(labels)}
-    reverse = {idx: label for label, idx in forward.items()}
-    encoded = series.map(forward).fillna(forward["low"]).astype(int).to_numpy()
-    return encoded, reverse, forward
-
-
 def train_models(table: pd.DataFrame, config: ProjectConfig) -> ModelingArtifacts:
     usable = table.dropna(subset=["target_cases_7d", "risk_label"]).copy()
     feature_columns = _feature_columns(usable)
@@ -90,17 +86,24 @@ def train_models(table: pd.DataFrame, config: ProjectConfig) -> ModelingArtifact
         "rmse": float(np.sqrt(mean_squared_error(y_test, forecast_preds))),
     }
 
-    y_train_risk, risk_decode, _ = _encode_risk(train["risk_label"])
-    y_test_risk, _, _ = _encode_risk(test["risk_label"])
-
-    risk_model = LogisticRegression(max_iter=1000)
-    risk_model.fit(x_train, y_train_risk)
-    risk_preds = risk_model.predict(x_test)
+    risk_eval = test.copy()
+    risk_eval["predicted_cases_7d"] = forecast_preds
+    risk_eval["predicted_growth_rate"] = risk_eval["predicted_cases_7d"] / (
+        risk_eval["rolling_cases_mean_7"].replace(0, np.nan) * config.forecast_horizon_days
+    )
+    risk_eval = attach_risk_context(
+        risk_eval,
+        cases_col="predicted_cases_7d",
+        growth_col="predicted_growth_rate",
+        prefix="predicted_",
+    )
+    actual_labels = test["target_risk_label"].fillna("low")
+    predicted_labels = risk_eval["predicted_risk_label"].fillna("low")
     risk_metrics = {
-        "accuracy": float(accuracy_score(y_test_risk, risk_preds)),
-        "precision_weighted": float(precision_score(y_test_risk, risk_preds, average="weighted", zero_division=0)),
-        "recall_weighted": float(recall_score(y_test_risk, risk_preds, average="weighted", zero_division=0)),
-        "f1_weighted": float(f1_score(y_test_risk, risk_preds, average="weighted", zero_division=0)),
+        "accuracy": float(accuracy_score(actual_labels, predicted_labels)),
+        "precision_weighted": float(precision_score(actual_labels, predicted_labels, average="weighted", zero_division=0)),
+        "recall_weighted": float(recall_score(actual_labels, predicted_labels, average="weighted", zero_division=0)),
+        "f1_weighted": float(f1_score(actual_labels, predicted_labels, average="weighted", zero_division=0)),
     }
 
     latest_rows = (
@@ -115,25 +118,36 @@ def train_models(table: pd.DataFrame, config: ProjectConfig) -> ModelingArtifact
     latest_rows["predicted_growth_rate"] = latest_rows["predicted_cases_7d"] / (
         latest_rows["rolling_cases_mean_7"].replace(0, np.nan) * config.forecast_horizon_days
     )
-    proba = risk_model.predict_proba(latest_x)
-    latest_rows["risk_score"] = proba.max(axis=1)
-    latest_rows["risk_label"] = [risk_decode[idx] for idx in risk_model.predict(latest_x)]
+    latest_rows = attach_risk_context(
+        latest_rows,
+        cases_col="predicted_cases_7d",
+        growth_col="predicted_growth_rate",
+        prefix="predicted_",
+    )
+    latest_rows["risk_score"] = latest_rows["predicted_risk_score"]
+    latest_rows["risk_label"] = latest_rows["predicted_risk_label"]
     latest_predictions = latest_rows[
         [
             "date",
             "country",
             "iso_code",
             "predicted_cases_7d",
+            "predicted_cases_per_100k_7d",
             "predicted_growth_rate",
             "risk_score",
             "risk_label",
             "rolling_cases_mean_7",
+            "predicted_recent_cases_per_100k_7d",
         ]
-    ].rename(columns={"rolling_cases_mean_7": "recent_cases_7d_avg"})
+    ].rename(
+        columns={
+            "rolling_cases_mean_7": "recent_cases_7d_avg",
+            "predicted_recent_cases_per_100k_7d": "recent_cases_per_100k_7d",
+        }
+    )
 
     return ModelingArtifacts(
         forecast_model=forecast_model,
-        risk_model=risk_model,
         imputer=imputer,
         feature_columns=feature_columns,
         forecast_metrics=forecast_metrics,

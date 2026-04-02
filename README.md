@@ -16,6 +16,11 @@ Predicting short-term COVID-19 spread using epidemiological signals, mobility be
 
 </div>
 
+## Team
+
+- Team Name: `genx`
+- Member: `Ayush Ranjan`
+
 ## Overview
 
 This project is a country-level epidemic intelligence system built to forecast COVID-19 spread and identify outbreak hotspots. It combines historical case trends with mobility and mortality-related indicators, and optionally enriches the feature space with the official Our World in Data COVID dataset for population, testing, vaccination, and healthcare context.

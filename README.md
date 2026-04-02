@@ -31,6 +31,24 @@ Optional drop-in enhancement:
 
 If the OWID master file is added to the project root, the pipeline automatically uses extra fields such as population, testing, vaccination, hospital, ICU, positivity, and stringency signals.
 
+## Included In This Repository
+
+Committed directly to the repo:
+
+- `time_series_covid19_confirmed_global.csv`
+- `estimated-cumulative-excess-deaths-per-100000-people-during-covid-19.csv`
+- `Global_Mobility_Report.zip`
+
+The original mobility CSV is about `1.14 GB`, so the repository stores a compressed archive instead.
+
+To run the full pipeline with mobility features after cloning, extract:
+
+- `Global_Mobility_Report.zip`
+
+into:
+
+- `Global_Mobility_Report.csv`
+
 ## Repository Structure
 
 ```text

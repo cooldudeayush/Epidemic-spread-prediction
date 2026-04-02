@@ -5,10 +5,7 @@ __pycache__/
 
 # Large raw datasets kept locally
 Global_Mobility_Report.csv
-time_series_covid19_confirmed_global.csv
-estimated-cumulative-excess-deaths-per-100000-people-during-covid-19.csv
 owid-covid-data.csv
 
 # Large generated artifacts
 outputs/processed/
-

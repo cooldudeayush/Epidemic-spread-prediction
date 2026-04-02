@@ -8,26 +8,29 @@ import streamlit as st
 
 
 ROOT = Path(__file__).resolve().parent
-MODELING_TABLE = ROOT / "outputs" / "processed" / "modeling_table.csv"
 PREDICTIONS = ROOT / "outputs" / "predictions" / "latest_country_predictions.csv"
+CASE_TRENDS = ROOT / "outputs" / "app" / "case_trends.csv"
+MOBILITY_SNAPSHOT = ROOT / "outputs" / "app" / "mobility_snapshot.csv"
 
 
 @st.cache_data
-def load_outputs() -> tuple[pd.DataFrame, pd.DataFrame]:
-    modeling = pd.read_csv(MODELING_TABLE, parse_dates=["date"])
+def load_outputs() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    trends = pd.read_csv(CASE_TRENDS, parse_dates=["date"])
     predictions = pd.read_csv(PREDICTIONS, parse_dates=["date"])
-    return modeling, predictions
+    mobility = pd.read_csv(MOBILITY_SNAPSHOT)
+    return trends, predictions, mobility
 
 
 st.set_page_config(page_title="Global COVID Risk Dashboard", layout="wide")
 st.title("Global COVID Outbreak Forecasting and Risk Dashboard")
 st.caption("Country-level 7-day case forecasts and hotspot risk estimates.")
 
-if not MODELING_TABLE.exists() or not PREDICTIONS.exists():
-    st.warning("Run `python run_pipeline.py` first to generate outputs.")
+required_files = [PREDICTIONS, CASE_TRENDS, MOBILITY_SNAPSHOT]
+if any(not path.exists() for path in required_files):
+    st.warning("Missing deployment data files. Commit the lightweight files in `outputs/app/` and `outputs/predictions/`.")
     st.stop()
 
-modeling, predictions = load_outputs()
+trends, predictions, mobility = load_outputs()
 
 country_options = ["All"] + sorted(predictions["country"].dropna().unique().tolist())
 selected_country = st.sidebar.selectbox("Country", country_options)
@@ -66,9 +69,9 @@ st.dataframe(
 st.subheader("Case Trends")
 if selected_country == "All":
     top_countries = predictions.sort_values("predicted_cases_7d", ascending=False).head(8)["country"]
-    trend_data = modeling[modeling["country"].isin(top_countries)]
+    trend_data = trends[trends["country"].isin(top_countries)]
 else:
-    trend_data = modeling[modeling["country"] == selected_country]
+    trend_data = trends[trends["country"] == selected_country]
 
 trend_fig = px.line(
     trend_data,
@@ -79,13 +82,11 @@ trend_fig = px.line(
 )
 st.plotly_chart(trend_fig, use_container_width=True)
 
-mobility_cols = [col for col in modeling.columns if col.endswith("_lag7")]
+mobility_cols = [col for col in mobility.columns if col.endswith("_lag7")]
 if selected_country != "All" and mobility_cols:
     st.subheader("Mobility Drivers")
     latest_country_row = (
-        modeling[modeling["country"] == selected_country]
-        .sort_values("date")
-        .tail(1)
+        mobility[mobility["country"] == selected_country]
         .melt(value_vars=mobility_cols, var_name="feature", value_name="value")
         .dropna()
     )

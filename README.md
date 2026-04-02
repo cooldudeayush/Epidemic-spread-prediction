@@ -93,11 +93,23 @@ streamlit run dashboard.py
 ## Generated Outputs
 
 - `outputs/predictions/latest_country_predictions.csv`
+- `outputs/app/case_trends.csv`
+- `outputs/app/mobility_snapshot.csv`
 - `outputs/metrics/forecast_metrics.json`
 - `outputs/metrics/risk_metrics.json`
 - `outputs/metrics/pipeline_summary.csv`
 
 The large intermediate modeling table is generated locally and intentionally excluded from GitHub.
+
+## Streamlit Deployment
+
+This repository is now set up so the deployed Streamlit app reads only the lightweight files inside:
+
+- `outputs/predictions/`
+- `outputs/app/`
+- `outputs/metrics/`
+
+That means Streamlit Cloud does not need the full local training artifacts to render the dashboard.
 
 ## Current Pipeline Summary
 

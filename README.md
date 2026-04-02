@@ -4,6 +4,8 @@ Global COVID-19 outbreak forecasting and hotspot risk detection system built for
 
 This repository predicts short-term disease spread at the country level by combining historical case trends, mobility behavior, and mortality-related signals. It also provides an interactive dashboard for outbreak monitoring and risk visualization.
 
+Live app: https://epidemic-spread-prediction.streamlit.app/
+
 ## Features
 
 - 7-day country-level COVID case forecasting
